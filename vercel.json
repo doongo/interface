@@ -1,9 +1,0 @@
-{
-  "redirects": [
-    { 
-      "source": "/",
-      "destination": "https://interface-v2-lilac.vercel.app/#/swap", 
-      "permanent": true
-    }
-  ]
-}
