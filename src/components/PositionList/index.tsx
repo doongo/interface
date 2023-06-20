@@ -1,5 +1,4 @@
 import { Trans } from '@lingui/macro'
-import { ButtonText } from 'components/Button'
 import PositionListItem from 'components/PositionListItem'
 import React from 'react'
 import styled from 'styled-components/macro'
@@ -10,9 +9,10 @@ const DesktopHeader = styled.div`
   display: none;
   font-size: 14px;
   font-weight: 500;
-  padding: 8px;
+  padding: 16px;
+  border-bottom: 1px solid ${({ theme }) => theme.backgroundOutline};
 
-  @media screen and (min-width: ${MEDIA_WIDTHS.upToSmall}px) {
+  @media screen and (min-width: ${MEDIA_WIDTHS.deprecated_upToSmall}px) {
     align-items: center;
     display: flex;
     justify-content: space-between;
@@ -25,12 +25,38 @@ const DesktopHeader = styled.div`
 
 const MobileHeader = styled.div`
   font-weight: medium;
-  font-size: 16px;
-  font-weight: 500;
   padding: 8px;
-  @media screen and (min-width: ${MEDIA_WIDTHS.upToSmall}px) {
+  font-weight: 500;
+  padding: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  border-bottom: 1px solid ${({ theme }) => theme.backgroundOutline};
+
+  @media screen and (min-width: ${MEDIA_WIDTHS.deprecated_upToSmall}px) {
     display: none;
   }
+
+  @media screen and (max-width: ${MEDIA_WIDTHS.deprecated_upToExtraSmall}px) {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+`
+
+const ToggleWrap = styled.div`
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+`
+
+const ToggleLabel = styled.button`
+  cursor: pointer;
+  background-color: transparent;
+  border: none;
+  color: ${({ theme }) => theme.accentAction};
+  font-size: 1rem;
 `
 
 type PositionListProps = React.PropsWithChildren<{
@@ -51,16 +77,31 @@ export default function PositionList({
           <Trans>Your positions</Trans>
           {positions && ' (' + positions.length + ')'}
         </div>
-        <ButtonText style={{ opacity: 0.6 }} onClick={() => setUserHideClosedPositions(!userHideClosedPositions)}>
-          <Trans>Hide closed positions</Trans>
-        </ButtonText>
+
+        <ToggleLabel
+          id="desktop-hide-closed-positions"
+          onClick={() => {
+            setUserHideClosedPositions(!userHideClosedPositions)
+          }}
+        >
+          {userHideClosedPositions ? <Trans>Show closed positions</Trans> : <Trans>Hide closed positions</Trans>}
+        </ToggleLabel>
       </DesktopHeader>
       <MobileHeader>
         <Trans>Your positions</Trans>
+        <ToggleWrap>
+          <ToggleLabel
+            onClick={() => {
+              setUserHideClosedPositions(!userHideClosedPositions)
+            }}
+          >
+            {userHideClosedPositions ? <Trans>Show closed positions</Trans> : <Trans>Hide closed positions</Trans>}
+          </ToggleLabel>
+        </ToggleWrap>
       </MobileHeader>
-      {positions.map((p) => {
-        return <PositionListItem key={p.tokenId.toString()} positionDetails={p} />
-      })}
+      {positions.map((p) => (
+        <PositionListItem key={p.tokenId.toString()} {...p} />
+      ))}
     </>
   )
 }

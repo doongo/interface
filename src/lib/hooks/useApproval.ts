@@ -1,9 +1,12 @@
 import { MaxUint256 } from '@ethersproject/constants'
-import { TransactionResponse } from '@ethersproject/providers'
+import type { TransactionResponse } from '@ethersproject/providers'
+import { sendAnalyticsEvent } from '@uniswap/analytics'
+import { InterfaceEventName } from '@uniswap/analytics-events'
 import { Currency, CurrencyAmount, Token } from '@uniswap/sdk-core'
-import useActiveWeb3React from 'hooks/useActiveWeb3React'
+import { useWeb3React } from '@web3-react/core'
 import { useTokenContract } from 'hooks/useContract'
 import { useTokenAllowance } from 'hooks/useTokenAllowance'
+import { getTokenAddress } from 'lib/utils/analytics'
 import { useCallback, useMemo } from 'react'
 import { calculateGasMargin } from 'utils/calculateGasMargin'
 
@@ -14,30 +17,30 @@ export enum ApprovalState {
   APPROVED = 'APPROVED',
 }
 
-export function useApprovalStateForSpender(
+function useApprovalStateForSpender(
   amountToApprove: CurrencyAmount<Currency> | undefined,
   spender: string | undefined,
   useIsPendingApproval: (token?: Token, spender?: string) => boolean
 ): ApprovalState {
-  const { account } = useActiveWeb3React()
+  const { account } = useWeb3React()
   const token = amountToApprove?.currency?.isToken ? amountToApprove.currency : undefined
 
-  const currentAllowance = useTokenAllowance(token, account ?? undefined, spender)
+  const { tokenAllowance } = useTokenAllowance(token, account ?? undefined, spender)
   const pendingApproval = useIsPendingApproval(token, spender)
 
   return useMemo(() => {
     if (!amountToApprove || !spender) return ApprovalState.UNKNOWN
     if (amountToApprove.currency.isNative) return ApprovalState.APPROVED
     // we might not have enough data to know whether or not we need to approve
-    if (!currentAllowance) return ApprovalState.UNKNOWN
+    if (!tokenAllowance) return ApprovalState.UNKNOWN
 
-    // amountToApprove will be defined if currentAllowance is
-    return currentAllowance.lessThan(amountToApprove)
+    // amountToApprove will be defined if tokenAllowance is
+    return tokenAllowance.lessThan(amountToApprove)
       ? pendingApproval
         ? ApprovalState.PENDING
         : ApprovalState.NOT_APPROVED
       : ApprovalState.APPROVED
-  }, [amountToApprove, currentAllowance, pendingApproval, spender])
+  }, [amountToApprove, pendingApproval, spender, tokenAllowance])
 }
 
 export function useApproval(
@@ -46,9 +49,12 @@ export function useApproval(
   useIsPendingApproval: (token?: Token, spender?: string) => boolean
 ): [
   ApprovalState,
-  () => Promise<{ response: TransactionResponse; tokenAddress: string; spenderAddress: string } | undefined>
+  () => Promise<
+    | { response: TransactionResponse; tokenAddress: string; spenderAddress: string; amount: CurrencyAmount<Currency> }
+    | undefined
+  >
 ] {
-  const { chainId } = useActiveWeb3React()
+  const { chainId } = useWeb3React()
   const token = amountToApprove?.currency?.isToken ? amountToApprove.currency : undefined
 
   // check the current approval status
@@ -88,11 +94,20 @@ export function useApproval(
       .approve(spender, useExact ? amountToApprove.quotient.toString() : MaxUint256, {
         gasLimit: calculateGasMargin(estimatedGas),
       })
-      .then((response) => ({
-        response,
-        tokenAddress: token.address,
-        spenderAddress: spender,
-      }))
+      .then((response) => {
+        const eventProperties = {
+          chain_id: chainId,
+          token_symbol: token?.symbol,
+          token_address: getTokenAddress(token),
+        }
+        sendAnalyticsEvent(InterfaceEventName.APPROVE_TOKEN_TXN_SUBMITTED, eventProperties)
+        return {
+          response,
+          tokenAddress: token.address,
+          spenderAddress: spender,
+          amount: amountToApprove,
+        }
+      })
       .catch((error: Error) => {
         logFailure(error)
         throw error

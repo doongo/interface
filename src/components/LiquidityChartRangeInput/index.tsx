@@ -2,17 +2,15 @@ import { Trans } from '@lingui/macro'
 import { Currency, Price, Token } from '@uniswap/sdk-core'
 import { FeeAmount } from '@uniswap/v3-sdk'
 import { AutoColumn, ColumnCenter } from 'components/Column'
-import Loader from 'components/Loader'
+import Loader from 'components/Icons/LoadingSpinner'
 import { format } from 'd3'
 import { useColor } from 'hooks/useColor'
-import useTheme from 'hooks/useTheme'
 import { saturate } from 'polished'
 import React, { ReactNode, useCallback, useMemo } from 'react'
 import { BarChart2, CloudOff, Inbox } from 'react-feather'
-import ReactGA from 'react-ga'
 import { batch } from 'react-redux'
 import { Bound } from 'state/mint/v3/actions'
-import styled from 'styled-components/macro'
+import styled, { useTheme } from 'styled-components/macro'
 
 import { ThemedText } from '../../theme'
 import { Chart } from './Chart'
@@ -58,9 +56,9 @@ function InfoBox({ message, icon }: { message?: ReactNode; icon: ReactNode }) {
     <ColumnCenter style={{ height: '100%', justifyContent: 'center' }}>
       {icon}
       {message && (
-        <ThemedText.MediumHeader padding={10} marginTop="20px" textAlign="center">
+        <ThemedText.DeprecatedMediumHeader padding={10} marginTop="20px" textAlign="center">
           {message}
-        </ThemedText.MediumHeader>
+        </ThemedText.DeprecatedMediumHeader>
       )}
     </ColumnCenter>
   )
@@ -78,11 +76,11 @@ export default function LiquidityChartRangeInput({
   onRightRangeInput,
   interactive,
 }: {
-  currencyA: Currency | undefined
-  currencyB: Currency | undefined
+  currencyA?: Currency
+  currencyB?: Currency
   feeAmount?: FeeAmount
   ticksAtLimit: { [bound in Bound]?: boolean | undefined }
-  price: number | undefined
+  price?: number
   priceLower?: Price<Token, Token>
   priceUpper?: Price<Token, Token>
   onLeftRangeInput: (typedValue: string) => void
@@ -96,14 +94,14 @@ export default function LiquidityChartRangeInput({
 
   const isSorted = currencyA && currencyB && currencyA?.wrapped.sortsBefore(currencyB?.wrapped)
 
-  const { isLoading, isUninitialized, isError, error, formattedData } = useDensityChartData({
+  const { isLoading, error, formattedData } = useDensityChartData({
     currencyA,
     currencyB,
     feeAmount,
   })
 
   const onBrushDomainChangeEnded = useCallback(
-    (domain, mode) => {
+    (domain: [number, number], mode: string | undefined) => {
       let leftRangeValue = Number(domain[0])
       const rightRangeValue = Number(domain[1])
 
@@ -157,32 +155,26 @@ export default function LiquidityChartRangeInput({
     [isSorted, price, ticksAtLimit]
   )
 
-  if (isError) {
-    ReactGA.exception({
-      ...error,
-      category: 'Liquidity',
-      fatal: false,
-    })
-  }
+  const isUninitialized = !currencyA || !currencyB || (formattedData === undefined && !isLoading)
 
   return (
     <AutoColumn gap="md" style={{ minHeight: '200px' }}>
       {isUninitialized ? (
         <InfoBox
           message={<Trans>Your position will appear here.</Trans>}
-          icon={<Inbox size={56} stroke={theme.text1} />}
+          icon={<Inbox size={56} stroke={theme.textPrimary} />}
         />
       ) : isLoading ? (
-        <InfoBox icon={<Loader size="40px" stroke={theme.text4} />} />
-      ) : isError ? (
+        <InfoBox icon={<Loader size="40px" stroke={theme.deprecated_text4} />} />
+      ) : error ? (
         <InfoBox
           message={<Trans>Liquidity data not available.</Trans>}
-          icon={<CloudOff size={56} stroke={theme.text4} />}
+          icon={<CloudOff size={56} stroke={theme.deprecated_text4} />}
         />
-      ) : !formattedData || formattedData === [] || !price ? (
+      ) : !formattedData || formattedData.length === 0 || !price ? (
         <InfoBox
           message={<Trans>There is no liquidity data.</Trans>}
-          icon={<BarChart2 size={56} stroke={theme.text4} />}
+          icon={<BarChart2 size={56} stroke={theme.deprecated_text4} />}
         />
       ) : (
         <ChartWrapper>
@@ -192,12 +184,12 @@ export default function LiquidityChartRangeInput({
             margins={{ top: 10, right: 2, bottom: 20, left: 0 }}
             styles={{
               area: {
-                selection: theme.blue1,
+                selection: theme.accentAction,
               },
               brush: {
                 handle: {
-                  west: saturate(0.1, tokenAColor) ?? theme.red1,
-                  east: saturate(0.1, tokenBColor) ?? theme.blue1,
+                  west: saturate(0.1, tokenAColor) ?? theme.accentFailure,
+                  east: saturate(0.1, tokenBColor) ?? theme.accentAction,
                 },
               },
             }}

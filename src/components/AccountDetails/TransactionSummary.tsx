@@ -1,5 +1,6 @@
 import { Trans } from '@lingui/macro'
 import { Fraction, TradeType } from '@uniswap/sdk-core'
+import { BigNumber } from 'ethers/lib/ethers'
 import JSBI from 'jsbi'
 
 import { nativeOnChain } from '../../constants/tokens'
@@ -14,18 +15,17 @@ import {
   CollectFeesTransactionInfo,
   CreateV3PoolTransactionInfo,
   DelegateTransactionInfo,
-  DepositLiquidityStakingTransactionInfo,
   ExactInputSwapTransactionInfo,
   ExactOutputSwapTransactionInfo,
+  ExecuteTransactionInfo,
   MigrateV2LiquidityToV3TransactionInfo,
+  QueueTransactionInfo,
   RemoveLiquidityV3TransactionInfo,
-  SubmitProposalTransactionInfo,
   TransactionInfo,
   TransactionType,
   VoteTransactionInfo,
-  WithdrawLiquidityStakingTransactionInfo,
   WrapTransactionInfo,
-} from '../../state/transactions/actions'
+} from '../../state/transactions/types'
 
 function formatAmount(amountRaw: string, decimals: number, sigFigs: number): string {
   return new Fraction(amountRaw, JSBI.exponentiate(JSBI.BigInt(10), JSBI.BigInt(decimals))).toSignificant(sigFigs)
@@ -73,7 +73,7 @@ function ClaimSummary({ info: { recipient, uniAmountRaw } }: { info: ClaimTransa
   const { ENSName } = useENSName()
   return typeof uniAmountRaw === 'string' ? (
     <Trans>
-      Claim <FormattedCurrencyAmount rawAmount={uniAmountRaw} symbol={'UNI'} decimals={18} sigFigs={4} /> for{' '}
+      Claim <FormattedCurrencyAmount rawAmount={uniAmountRaw} symbol="UNI" decimals={18} sigFigs={4} /> for{' '}
       {ENSName ?? recipient}
     </Trans>
   ) : (
@@ -81,14 +81,18 @@ function ClaimSummary({ info: { recipient, uniAmountRaw } }: { info: ClaimTransa
   )
 }
 
-function SubmitProposalTransactionSummary(_: { info: SubmitProposalTransactionInfo }) {
+function SubmitProposalTransactionSummary() {
   return <Trans>Submit new proposal</Trans>
 }
 
 function ApprovalSummary({ info }: { info: ApproveTransactionInfo }) {
   const token = useToken(info.tokenAddress)
 
-  return <Trans>Approve {token?.symbol}</Trans>
+  return BigNumber.from(info.amount)?.eq(0) ? (
+    <Trans>Revoke {token?.symbol}</Trans>
+  ) : (
+    <Trans>Approve {token?.symbol}</Trans>
+  )
 }
 
 function VoteSummary({ info }: { info: VoteTransactionInfo }) {
@@ -124,6 +128,16 @@ function VoteSummary({ info }: { info: VoteTransactionInfo }) {
         )
     }
   }
+}
+
+function QueueSummary({ info }: { info: QueueTransactionInfo }) {
+  const proposalKey = `${info.governorAddress}/${info.proposalId}`
+  return <Trans>Queue proposal {proposalKey}.</Trans>
+}
+
+function ExecuteSummary({ info }: { info: ExecuteTransactionInfo }) {
+  const proposalKey = `${info.governorAddress}/${info.proposalId}`
+  return <Trans>Execute proposal {proposalKey}.</Trans>
 }
 
 function DelegateSummary({ info: { delegatee } }: { info: DelegateTransactionInfo }) {
@@ -163,13 +177,13 @@ function WrapSummary({ info: { chainId, currencyAmountRaw, unwrapped } }: { info
   }
 }
 
-function DepositLiquidityStakingSummary(_: { info: DepositLiquidityStakingTransactionInfo }) {
+function DepositLiquidityStakingSummary() {
   // not worth rendering the tokens since you can should no longer deposit liquidity in the staking contracts
   // todo: deprecate and delete the code paths that allow this, show user more information
   return <Trans>Deposit liquidity</Trans>
 }
 
-function WithdrawLiquidityStakingSummary(_: { info: WithdrawLiquidityStakingTransactionInfo }) {
+function WithdrawLiquidityStakingSummary() {
   return <Trans>Withdraw deposited liquidity</Trans>
 }
 
@@ -307,10 +321,10 @@ export function TransactionSummary({ info }: { info: TransactionInfo }) {
       return <ClaimSummary info={info} />
 
     case TransactionType.DEPOSIT_LIQUIDITY_STAKING:
-      return <DepositLiquidityStakingSummary info={info} />
+      return <DepositLiquidityStakingSummary />
 
     case TransactionType.WITHDRAW_LIQUIDITY_STAKING:
-      return <WithdrawLiquidityStakingSummary info={info} />
+      return <WithdrawLiquidityStakingSummary />
 
     case TransactionType.SWAP:
       return <SwapSummary info={info} />
@@ -339,7 +353,13 @@ export function TransactionSummary({ info }: { info: TransactionInfo }) {
     case TransactionType.REMOVE_LIQUIDITY_V3:
       return <RemoveLiquidityV3Summary info={info} />
 
+    case TransactionType.QUEUE:
+      return <QueueSummary info={info} />
+
+    case TransactionType.EXECUTE:
+      return <ExecuteSummary info={info} />
+
     case TransactionType.SUBMIT_PROPOSAL:
-      return <SubmitProposalTransactionSummary info={info} />
+      return <SubmitProposalTransactionSummary />
   }
 }

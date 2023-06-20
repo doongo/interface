@@ -11,18 +11,19 @@ import {
   TickMath,
   tickToPrice,
 } from '@uniswap/v3-sdk'
-import useActiveWeb3React from 'hooks/useActiveWeb3React'
+import { useWeb3React } from '@web3-react/core'
 import { usePool } from 'hooks/usePools'
 import JSBI from 'jsbi'
 import tryParseCurrencyAmount from 'lib/utils/tryParseCurrencyAmount'
 import { ReactNode, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from 'state/hooks'
 import { getTickToPrice } from 'utils/getTickToPrice'
 
 import { BIG_INT_ZERO } from '../../../constants/misc'
 import { PoolState } from '../../../hooks/usePools'
-import { AppState } from '../../index'
-import { useCurrencyBalances } from '../../wallet/hooks'
+import { useCurrencyBalances } from '../../connection/hooks'
+import { AppState } from '../../types'
 import {
   Bound,
   Field,
@@ -61,18 +62,30 @@ export function useV3MintActionHandlers(noLiquidity: boolean | undefined): {
     [dispatch, noLiquidity]
   )
 
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const onLeftRangeInput = useCallback(
     (typedValue: string) => {
       dispatch(typeLeftRangeInput({ typedValue }))
+      const paramMinPrice = searchParams.get('minPrice')
+      if (!paramMinPrice || (paramMinPrice && paramMinPrice !== typedValue)) {
+        searchParams.set('minPrice', typedValue)
+        setSearchParams(searchParams)
+      }
     },
-    [dispatch]
+    [dispatch, searchParams, setSearchParams]
   )
 
   const onRightRangeInput = useCallback(
     (typedValue: string) => {
       dispatch(typeRightRangeInput({ typedValue }))
+      const paramMaxPrice = searchParams.get('maxPrice')
+      if (!paramMaxPrice || (paramMaxPrice && paramMaxPrice !== typedValue)) {
+        searchParams.set('maxPrice', typedValue)
+        setSearchParams(searchParams)
+      }
     },
-    [dispatch]
+    [dispatch, searchParams, setSearchParams]
   )
 
   const onStartPriceInput = useCallback(
@@ -106,11 +119,14 @@ export function useV3DerivedMintInfo(
   pricesAtTicks: {
     [bound in Bound]?: Price<Token, Token> | undefined
   }
+  pricesAtLimit: {
+    [bound in Bound]?: Price<Token, Token> | undefined
+  }
   currencies: { [field in Field]?: Currency }
   currencyBalances: { [field in Field]?: CurrencyAmount<Currency> }
   dependentField: Field
   parsedAmounts: { [field in Field]?: CurrencyAmount<Currency> }
-  position: Position | undefined
+  position?: Position
   noLiquidity?: boolean
   errorMessage?: ReactNode
   invalidPool: boolean
@@ -121,7 +137,7 @@ export function useV3DerivedMintInfo(
   invertPrice: boolean
   ticksAtLimit: { [bound in Bound]?: boolean | undefined }
 } {
-  const { account } = useActiveWeb3React()
+  const { account } = useWeb3React()
 
   const { independentField, typedValue, leftRangeTypedValue, rightRangeTypedValue, startPriceTypedValue } =
     useV3MintState()
@@ -219,9 +235,7 @@ export function useV3DerivedMintInfo(
   const poolForPosition: Pool | undefined = pool ?? mockPool
 
   // lower and upper limits in the tick space for `feeAmoun<Trans>
-  const tickSpaceLimits: {
-    [bound in Bound]: number | undefined
-  } = useMemo(
+  const tickSpaceLimits = useMemo(
     () => ({
       [Bound.LOWER]: feeAmount ? nearestUsableTick(TickMath.MIN_TICK, TICK_SPACINGS[feeAmount]) : undefined,
       [Bound.UPPER]: feeAmount ? nearestUsableTick(TickMath.MAX_TICK, TICK_SPACINGS[feeAmount]) : undefined,
@@ -231,9 +245,7 @@ export function useV3DerivedMintInfo(
 
   // parse typed range values and determine closest ticks
   // lower should always be a smaller tick
-  const ticks: {
-    [key: string]: number | undefined
-  } = useMemo(() => {
+  const ticks = useMemo(() => {
     return {
       [Bound.LOWER]:
         typeof existingPosition?.tickLower === 'number'
@@ -278,6 +290,13 @@ export function useV3DerivedMintInfo(
 
   // mark invalid range
   const invalidRange = Boolean(typeof tickLower === 'number' && typeof tickUpper === 'number' && tickLower >= tickUpper)
+
+  const pricesAtLimit = useMemo(() => {
+    return {
+      [Bound.LOWER]: getTickToPrice(token0, token1, tickSpaceLimits.LOWER),
+      [Bound.UPPER]: getTickToPrice(token0, token1, tickSpaceLimits.UPPER),
+    }
+  }, [token0, token1, tickSpaceLimits.LOWER, tickSpaceLimits.UPPER])
 
   // always returns the price with 0 as base token
   const pricesAtTicks = useMemo(() => {
@@ -465,6 +484,7 @@ export function useV3DerivedMintInfo(
     ticks,
     price,
     pricesAtTicks,
+    pricesAtLimit,
     position,
     noLiquidity,
     errorMessage,

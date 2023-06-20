@@ -1,12 +1,22 @@
 import { Currency, CurrencyAmount, TradeType } from '@uniswap/sdk-core'
+import { useWeb3React } from '@web3-react/core'
+import { WRAPPED_NATIVE_CURRENCY } from 'constants/tokens'
+import { DebounceSwapQuoteVariant, useDebounceSwapQuoteFlag } from 'featureFlags/flags/debounceSwapQuote'
 import { useMemo } from 'react'
 import { InterfaceTrade, TradeState } from 'state/routing/types'
 import { useRoutingAPITrade } from 'state/routing/useRoutingAPITrade'
+import { useRouterPreference } from 'state/user/hooks'
 
 import useAutoRouterSupported from './useAutoRouterSupported'
 import { useClientSideV3Trade } from './useClientSideV3Trade'
 import useDebounce from './useDebounce'
 import useIsWindowVisible from './useIsWindowVisible'
+
+// Prevents excessive quote requests between keystrokes.
+const DEBOUNCE_TIME = 350
+
+// Temporary until we remove the feature flag.
+const DEBOUNCE_TIME_INCREASED = 650
 
 /**
  * Returns the best v2+v3 trade for a desired swap.
@@ -20,37 +30,42 @@ export function useBestTrade(
   otherCurrency?: Currency
 ): {
   state: TradeState
-  trade: InterfaceTrade<Currency, Currency, TradeType> | undefined
+  trade?: InterfaceTrade
 } {
+  const { chainId } = useWeb3React()
   const autoRouterSupported = useAutoRouterSupported()
   const isWindowVisible = useIsWindowVisible()
 
+  const debouncedSwapQuoteFlagEnabled = useDebounceSwapQuoteFlag() === DebounceSwapQuoteVariant.Enabled
   const [debouncedAmount, debouncedOtherCurrency] = useDebounce(
     useMemo(() => [amountSpecified, otherCurrency], [amountSpecified, otherCurrency]),
-    200
+    debouncedSwapQuoteFlagEnabled ? DEBOUNCE_TIME_INCREASED : DEBOUNCE_TIME
   )
 
+  const isAWrapTransaction = useMemo(() => {
+    if (!chainId || !amountSpecified || !debouncedOtherCurrency) return false
+    const weth = WRAPPED_NATIVE_CURRENCY[chainId]
+    return (
+      (amountSpecified.currency.isNative && weth?.equals(debouncedOtherCurrency)) ||
+      (debouncedOtherCurrency.isNative && weth?.equals(amountSpecified.currency))
+    )
+  }, [amountSpecified, chainId, debouncedOtherCurrency])
+
+  const shouldGetTrade = !isAWrapTransaction && isWindowVisible
+
+  const [routerPreference] = useRouterPreference()
   const routingAPITrade = useRoutingAPITrade(
     tradeType,
-    autoRouterSupported && isWindowVisible ? debouncedAmount : undefined,
-    debouncedOtherCurrency
+    amountSpecified ? debouncedAmount : undefined,
+    debouncedOtherCurrency,
+    routerPreference,
+    !(autoRouterSupported && shouldGetTrade) // skip fetching
   )
 
-  const isLoading = amountSpecified !== undefined && debouncedAmount === undefined
-
-  // consider trade debouncing when inputs/outputs do not match
-  const debouncing =
-    routingAPITrade.trade &&
-    amountSpecified &&
-    (tradeType === TradeType.EXACT_INPUT
-      ? !routingAPITrade.trade.inputAmount.equalTo(amountSpecified) ||
-        !amountSpecified.currency.equals(routingAPITrade.trade.inputAmount.currency) ||
-        !debouncedOtherCurrency?.equals(routingAPITrade.trade.outputAmount.currency)
-      : !routingAPITrade.trade.outputAmount.equalTo(amountSpecified) ||
-        !amountSpecified.currency.equals(routingAPITrade.trade.outputAmount.currency) ||
-        !debouncedOtherCurrency?.equals(routingAPITrade.trade.inputAmount.currency))
-
-  const useFallback = !autoRouterSupported || (!debouncing && routingAPITrade.state === TradeState.NO_ROUTE_FOUND)
+  const inDebounce =
+    (!debouncedAmount && Boolean(amountSpecified)) || (!debouncedOtherCurrency && Boolean(otherCurrency))
+  const isLoading = routingAPITrade.state === TradeState.LOADING || inDebounce
+  const useFallback = (!autoRouterSupported || routingAPITrade.state === TradeState.NO_ROUTE_FOUND) && shouldGetTrade
 
   // only use client side router if routing api trade failed or is not supported
   const bestV3Trade = useClientSideV3Trade(
@@ -63,9 +78,8 @@ export function useBestTrade(
   return useMemo(
     () => ({
       ...(useFallback ? bestV3Trade : routingAPITrade),
-      ...(debouncing ? { state: TradeState.SYNCING } : {}),
       ...(isLoading ? { state: TradeState.LOADING } : {}),
     }),
-    [bestV3Trade, debouncing, isLoading, routingAPITrade, useFallback]
+    [bestV3Trade, isLoading, routingAPITrade, useFallback]
   )
 }

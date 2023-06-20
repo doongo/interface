@@ -1,7 +1,5 @@
-// include style rules in snapshots
-import 'jest-styled-components'
-
-import { fireEvent, render, screen } from 'test-utils'
+import { fireEvent, render, screen } from 'test-utils/render'
+import noop from 'utils/noop'
 
 import { ResizingTextArea, TextInput } from './'
 
@@ -11,7 +9,7 @@ describe('TextInput', () => {
       <TextInput
         className="testing"
         value="My test input"
-        onUserInput={() => null}
+        onUserInput={noop}
         placeholder="Test Placeholder"
         fontSize="12"
       />
@@ -44,7 +42,7 @@ describe('ResizableTextArea', () => {
       <ResizingTextArea
         className="testing"
         value="My test input"
-        onUserInput={() => null}
+        onUserInput={noop}
         placeholder="Test Placeholder"
         fontSize="12"
       />

@@ -1,18 +1,21 @@
 import '@reach/dialog/styles.css'
 import 'inter-ui'
 import 'polyfills'
-import 'components/analytics'
+import 'tracing'
 
-import { BlockUpdater } from 'lib/hooks/useBlockNumber'
+import { ApolloProvider } from '@apollo/client'
+import { FeatureFlagsProvider } from 'featureFlags'
+import { apolloClient } from 'graphql/data/apollo'
+import { BlockNumberProvider } from 'lib/hooks/useBlockNumber'
 import { MulticallUpdater } from 'lib/state/multicall'
 import { StrictMode } from 'react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
+import { QueryClient, QueryClientProvider } from 'react-query'
 import { Provider } from 'react-redux'
 import { HashRouter } from 'react-router-dom'
-import { createWeb3ReactRoot, Web3ReactProvider } from 'web3-react-core'
+import { SystemThemeUpdater } from 'theme/components/ThemeToggle'
 
-import Blocklist from './components/Blocklist'
-import { NetworkContextName } from './constants/misc'
+import Web3Provider from './components/Web3Provider'
 import { LanguageProvider } from './i18n'
 import App from './pages/App'
 import * as serviceWorkerRegistration from './serviceWorkerRegistration'
@@ -21,14 +24,10 @@ import ApplicationUpdater from './state/application/updater'
 import ListsUpdater from './state/lists/updater'
 import LogsUpdater from './state/logs/updater'
 import TransactionUpdater from './state/transactions/updater'
-import UserUpdater from './state/user/updater'
 import ThemeProvider, { ThemedGlobalStyle } from './theme'
-import RadialGradientByChainUpdater from './theme/RadialGradientByChainUpdater'
-import getLibrary from './utils/getLibrary'
+import RadialGradientByChainUpdater from './theme/components/RadialGradientByChainUpdater'
 
-const Web3ProviderNetwork = createWeb3ReactRoot(NetworkContextName)
-
-if (!!window.ethereum) {
+if (window.ethereum) {
   window.ethereum.autoRefreshOnNetworkChange = false
 }
 
@@ -37,40 +36,45 @@ function Updaters() {
     <>
       <RadialGradientByChainUpdater />
       <ListsUpdater />
-      <UserUpdater />
+      <SystemThemeUpdater />
       <ApplicationUpdater />
       <TransactionUpdater />
-      <BlockUpdater />
       <MulticallUpdater />
       <LogsUpdater />
     </>
   )
 }
 
-ReactDOM.render(
+const queryClient = new QueryClient()
+
+const container = document.getElementById('root') as HTMLElement
+
+createRoot(container).render(
   <StrictMode>
     <Provider store={store}>
-      <HashRouter>
-        <LanguageProvider>
-          <Web3ReactProvider getLibrary={getLibrary}>
-            <Web3ProviderNetwork getLibrary={getLibrary}>
-              <Blocklist>
-                <Updaters />
-                <ThemeProvider>
-                  <ThemedGlobalStyle />
-                  <App />
-                </ThemeProvider>
-              </Blocklist>
-            </Web3ProviderNetwork>
-          </Web3ReactProvider>
-        </LanguageProvider>
-      </HashRouter>
+      <FeatureFlagsProvider>
+        <QueryClientProvider client={queryClient}>
+          <HashRouter>
+            <LanguageProvider>
+              <Web3Provider>
+                <ApolloProvider client={apolloClient}>
+                  <BlockNumberProvider>
+                    <Updaters />
+                    <ThemeProvider>
+                      <ThemedGlobalStyle />
+                      <App />
+                    </ThemeProvider>
+                  </BlockNumberProvider>
+                </ApolloProvider>
+              </Web3Provider>
+            </LanguageProvider>
+          </HashRouter>
+        </QueryClientProvider>
+      </FeatureFlagsProvider>
     </Provider>
-  </StrictMode>,
-  document.getElementById('root')
+  </StrictMode>
 )
 
 if (process.env.REACT_APP_SERVICE_WORKER !== 'false') {
   serviceWorkerRegistration.register()
 }
-export { INFURA_NETWORK_URLS } from 'constants/infura'

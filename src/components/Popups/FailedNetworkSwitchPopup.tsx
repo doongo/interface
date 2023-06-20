@@ -1,9 +1,8 @@
 import { Trans } from '@lingui/macro'
-import { CHAIN_INFO } from 'constants/chainInfo'
+import AlertTriangleFilled from 'components/Icons/AlertTriangleFilled'
+import { getChainInfo } from 'constants/chainInfo'
 import { SupportedChainId } from 'constants/chains'
-import { useContext } from 'react'
-import { AlertCircle } from 'react-feather'
-import styled, { ThemeContext } from 'styled-components/macro'
+import styled from 'styled-components/macro'
 
 import { ThemedText } from '../../theme'
 import { AutoColumn } from '../Column'
@@ -13,23 +12,31 @@ const RowNoFlex = styled(AutoRow)`
   flex-wrap: nowrap;
 `
 
+const ColumnContainer = styled(AutoColumn)`
+  margin: 0 12px;
+`
+
+export const PopupAlertTriangle = styled(AlertTriangleFilled)`
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+`
+
 export default function FailedNetworkSwitchPopup({ chainId }: { chainId: SupportedChainId }) {
-  const chainInfo = CHAIN_INFO[chainId]
-  const theme = useContext(ThemeContext)
+  const chainInfo = getChainInfo(chainId)
 
   return (
-    <RowNoFlex>
-      <div style={{ paddingRight: 16 }}>
-        <AlertCircle color={theme.red1} size={24} />
-      </div>
-      <AutoColumn gap="8px">
-        <ThemedText.Body fontWeight={500}>
-          <Trans>
-            Failed to switch networks from the Uniswap Interface. In order to use Uniswap on {chainInfo.label}, you must
-            change the network in your wallet.
-          </Trans>
-        </ThemedText.Body>
-      </AutoColumn>
+    <RowNoFlex gap="12px">
+      <PopupAlertTriangle />
+      <ColumnContainer gap="sm">
+        <ThemedText.SubHeader color="textSecondary">
+          <Trans>Failed to switch networks</Trans>
+        </ThemedText.SubHeader>
+
+        <ThemedText.BodySmall color="textSecondary">
+          <Trans>To use Uniswap on {chainInfo.label}, switch the network in your wallet’s settings.</Trans>
+        </ThemedText.BodySmall>
+      </ColumnContainer>
     </RowNoFlex>
   )
 }

@@ -1,49 +1,36 @@
 import { nanoid } from '@reduxjs/toolkit'
 import { TokenList } from '@uniswap/token-lists'
-import useActiveWeb3React from 'hooks/useActiveWeb3React'
+import { SupportedChainId } from 'constants/chains'
+import { RPC_PROVIDERS } from 'constants/providers'
 import getTokenList from 'lib/hooks/useTokenList/fetchTokenList'
 import resolveENSContentHash from 'lib/utils/resolveENSContentHash'
 import { useCallback } from 'react'
 import { useAppDispatch } from 'state/hooks'
 
-import { getNetworkLibrary } from '../connectors'
 import { fetchTokenList } from '../state/lists/actions'
 
-export function useFetchListCallback(): (listUrl: string, sendDispatch?: boolean) => Promise<TokenList> {
-  const { chainId, library } = useActiveWeb3React()
+export function useFetchListCallback(): (listUrl: string, skipValidation?: boolean) => Promise<TokenList> {
   const dispatch = useAppDispatch()
 
-  const ensResolver = useCallback(
-    async (ensName: string) => {
-      if (!library || chainId !== 1) {
-        const networkLibrary = getNetworkLibrary()
-        const network = await networkLibrary.getNetwork()
-        if (networkLibrary && network.chainId === 1) {
-          return resolveENSContentHash(ensName, networkLibrary)
-        }
-        throw new Error('Could not construct mainnet ENS resolver')
-      }
-      return resolveENSContentHash(ensName, library)
-    },
-    [chainId, library]
-  )
-
-  // note: prevent dispatch if using for list search or unsupported list
   return useCallback(
-    async (listUrl: string, sendDispatch = true) => {
+    async (listUrl: string, skipValidation?: boolean) => {
       const requestId = nanoid()
-      sendDispatch && dispatch(fetchTokenList.pending({ requestId, url: listUrl }))
-      return getTokenList(listUrl, ensResolver)
+      dispatch(fetchTokenList.pending({ requestId, url: listUrl }))
+      return getTokenList(
+        listUrl,
+        (ensName: string) => resolveENSContentHash(ensName, RPC_PROVIDERS[SupportedChainId.MAINNET]),
+        skipValidation
+      )
         .then((tokenList) => {
-          sendDispatch && dispatch(fetchTokenList.fulfilled({ url: listUrl, tokenList, requestId }))
+          dispatch(fetchTokenList.fulfilled({ url: listUrl, tokenList, requestId }))
           return tokenList
         })
         .catch((error) => {
           console.debug(`Failed to get list at url ${listUrl}`, error)
-          sendDispatch && dispatch(fetchTokenList.rejected({ url: listUrl, requestId, errorMessage: error.message }))
+          dispatch(fetchTokenList.rejected({ url: listUrl, requestId, errorMessage: error.message }))
           throw error
         })
     },
-    [dispatch, ensResolver]
+    [dispatch]
   )
 }

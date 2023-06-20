@@ -1,14 +1,17 @@
 import { Trans } from '@lingui/macro'
+import { sendAnalyticsEvent } from '@uniswap/analytics'
+import { InterfaceEventName } from '@uniswap/analytics-events'
 import { Currency } from '@uniswap/sdk-core'
-import useActiveWeb3React from 'hooks/useActiveWeb3React'
+import { useWeb3React } from '@web3-react/core'
 import useNativeCurrency from 'lib/hooks/useNativeCurrency'
+import { formatToDecimal, getTokenAddress } from 'lib/utils/analytics'
 import tryParseCurrencyAmount from 'lib/utils/tryParseCurrencyAmount'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { WRAPPED_NATIVE_CURRENCY } from '../constants/tokens'
-import { TransactionType } from '../state/transactions/actions'
+import { useCurrencyBalance } from '../state/connection/hooks'
 import { useTransactionAdder } from '../state/transactions/hooks'
-import { useCurrencyBalance } from '../state/wallet/hooks'
+import { TransactionType } from '../state/transactions/types'
 import { useWETHContract } from './useContract'
 
 export enum WrapType {
@@ -28,7 +31,8 @@ enum WrapInputError {
 }
 
 export function WrapErrorText({ wrapInputError }: { wrapInputError: WrapInputError }) {
-  const native = useNativeCurrency()
+  const { chainId } = useWeb3React()
+  const native = useNativeCurrency(chainId)
   const wrapped = native?.wrapped
 
   switch (wrapInputError) {
@@ -56,8 +60,8 @@ export default function useWrapCallback(
   inputCurrency: Currency | undefined | null,
   outputCurrency: Currency | undefined | null,
   typedValue: string | undefined
-): { wrapType: WrapType; execute?: undefined | (() => Promise<void>); inputError?: WrapInputError } {
-  const { chainId, account } = useActiveWeb3React()
+): { wrapType: WrapType; execute?: () => Promise<void>; inputError?: WrapInputError } {
+  const { chainId, account } = useWeb3React()
   const wethContract = useWETHContract()
   const balance = useCurrencyBalance(account ?? undefined, inputCurrency ?? undefined)
   // we can always parse the amount typed as the input currency, since wrapping is 1:1
@@ -67,6 +71,11 @@ export default function useWrapCallback(
   )
   const addTransaction = useTransactionAdder()
 
+  // This allows an async error to propagate within the React lifecycle.
+  // Without rethrowing it here, it would not show up in the UI - only the dev console.
+  const [error, setError] = useState<Error>()
+  if (error) throw error
+
   return useMemo(() => {
     if (!wethContract || !chainId || !inputCurrency || !outputCurrency) return NOT_APPLICABLE
     const weth = WRAPPED_NATIVE_CURRENCY[chainId]
@@ -75,6 +84,15 @@ export default function useWrapCallback(
     const hasInputAmount = Boolean(inputAmount?.greaterThan('0'))
     const sufficientBalance = inputAmount && balance && !balance.lessThan(inputAmount)
 
+    const eventProperties = {
+      token_in_address: getTokenAddress(inputCurrency),
+      token_out_address: getTokenAddress(outputCurrency),
+      token_in_symbol: inputCurrency.symbol,
+      token_out_symbol: outputCurrency.symbol,
+      chain_id: inputCurrency.chainId,
+      amount: inputAmount ? formatToDecimal(inputAmount, inputAmount?.currency.decimals) : undefined,
+    }
+
     if (inputCurrency.isNative && weth.equals(outputCurrency)) {
       return {
         wrapType: WrapType.WRAP,
@@ -82,12 +100,32 @@ export default function useWrapCallback(
           sufficientBalance && inputAmount
             ? async () => {
                 try {
+                  const network = await wethContract.provider.getNetwork()
+                  if (
+                    network.chainId !== chainId ||
+                    wethContract.address !== WRAPPED_NATIVE_CURRENCY[network.chainId]?.address
+                  ) {
+                    sendAnalyticsEvent(InterfaceEventName.WRAP_TOKEN_TXN_INVALIDATED, {
+                      ...eventProperties,
+                      contract_address: wethContract.address,
+                      contract_chain_id: network.chainId,
+                      type: WrapType.WRAP,
+                    })
+                    const error = new Error(`Invalid WETH contract
+Please file a bug detailing how this happened - https://github.com/Uniswap/interface/issues/new?labels=bug&template=bug-report.md&title=Invalid%20WETH%20contract`)
+                    setError(error)
+                    throw error
+                  }
                   const txReceipt = await wethContract.deposit({ value: `0x${inputAmount.quotient.toString(16)}` })
                   addTransaction(txReceipt, {
                     type: TransactionType.WRAP,
                     unwrapped: false,
                     currencyAmountRaw: inputAmount?.quotient.toString(),
                     chainId,
+                  })
+                  sendAnalyticsEvent(InterfaceEventName.WRAP_TOKEN_TXN_SUBMITTED, {
+                    ...eventProperties,
+                    type: WrapType.WRAP,
                   })
                 } catch (error) {
                   console.error('Could not deposit', error)
@@ -113,6 +151,10 @@ export default function useWrapCallback(
                     unwrapped: true,
                     currencyAmountRaw: inputAmount?.quotient.toString(),
                     chainId,
+                  })
+                  sendAnalyticsEvent(InterfaceEventName.WRAP_TOKEN_TXN_SUBMITTED, {
+                    ...eventProperties,
+                    type: WrapType.UNWRAP,
                   })
                 } catch (error) {
                   console.error('Could not withdraw', error)

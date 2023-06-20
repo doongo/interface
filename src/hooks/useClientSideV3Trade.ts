@@ -1,18 +1,24 @@
 import { Currency, CurrencyAmount, TradeType } from '@uniswap/sdk-core'
 import { Route, SwapQuoter } from '@uniswap/v3-sdk'
+import { useWeb3React } from '@web3-react/core'
 import { SupportedChainId } from 'constants/chains'
-import useActiveWeb3React from 'hooks/useActiveWeb3React'
 import JSBI from 'jsbi'
 import { useSingleContractWithCallData } from 'lib/hooks/multicall'
 import { useMemo } from 'react'
-import { InterfaceTrade, TradeState } from 'state/routing/types'
+import { ClassicTrade, InterfaceTrade, TradeState } from 'state/routing/types'
 
+import { isCelo } from '../constants/tokens'
 import { useAllV3Routes } from './useAllV3Routes'
-import { useV3Quoter } from './useContract'
+import { useQuoter } from './useContract'
 
 const QUOTE_GAS_OVERRIDES: { [chainId: number]: number } = {
   [SupportedChainId.ARBITRUM_ONE]: 25_000_000,
-  [SupportedChainId.ARBITRUM_RINKEBY]: 25_000_000,
+  [SupportedChainId.ARBITRUM_GOERLI]: 25_000_000,
+  [SupportedChainId.CELO]: 50_000_000,
+  [SupportedChainId.CELO_ALFAJORES]: 50_000_000,
+  [SupportedChainId.POLYGON]: 40_000_000,
+  [SupportedChainId.POLYGON_MUMBAI]: 40_000_000,
+  [SupportedChainId.BNB]: 50_000_000,
 }
 
 const DEFAULT_GAS_QUOTE = 2_000_000
@@ -27,26 +33,34 @@ export function useClientSideV3Trade<TTradeType extends TradeType>(
   tradeType: TTradeType,
   amountSpecified?: CurrencyAmount<Currency>,
   otherCurrency?: Currency
-): { state: TradeState; trade: InterfaceTrade<Currency, Currency, TTradeType> | undefined } {
-  const [currencyIn, currencyOut] = useMemo(
-    () =>
-      tradeType === TradeType.EXACT_INPUT
-        ? [amountSpecified?.currency, otherCurrency]
-        : [otherCurrency, amountSpecified?.currency],
-    [tradeType, amountSpecified, otherCurrency]
-  )
+): { state: TradeState; trade?: InterfaceTrade } {
+  const [currencyIn, currencyOut] =
+    tradeType === TradeType.EXACT_INPUT
+      ? [amountSpecified?.currency, otherCurrency]
+      : [otherCurrency, amountSpecified?.currency]
   const { routes, loading: routesLoading } = useAllV3Routes(currencyIn, currencyOut)
 
-  const quoter = useV3Quoter()
-  const { chainId } = useActiveWeb3React()
-  const quotesResults = useSingleContractWithCallData(
-    quoter,
-    amountSpecified
-      ? routes.map((route) => SwapQuoter.quoteCallParameters(route, amountSpecified, tradeType).calldata)
-      : [],
-    {
-      gasRequired: chainId ? QUOTE_GAS_OVERRIDES[chainId] ?? DEFAULT_GAS_QUOTE : undefined,
-    }
+  const { chainId } = useWeb3React()
+  // Chains deployed using the deploy-v3 script only deploy QuoterV2.
+  const useQuoterV2 = useMemo(() => Boolean(chainId && isCelo(chainId)), [chainId])
+  const quoter = useQuoter(useQuoterV2)
+  const callData = useMemo(
+    () =>
+      amountSpecified
+        ? routes.map(
+            (route) => SwapQuoter.quoteCallParameters(route, amountSpecified, tradeType, { useQuoterV2 }).calldata
+          )
+        : [],
+    [amountSpecified, routes, tradeType, useQuoterV2]
+  )
+
+  const quotesResults = useSingleContractWithCallData(quoter, callData, {
+    gasRequired: chainId ? QUOTE_GAS_OVERRIDES[chainId] ?? DEFAULT_GAS_QUOTE : undefined,
+  })
+
+  const currenciesAreTheSame = useMemo(
+    () => currencyIn && currencyOut && (currencyIn.equals(currencyOut) || currencyIn.wrapped.equals(currencyOut)),
+    [currencyIn, currencyOut]
   )
 
   return useMemo(() => {
@@ -55,10 +69,7 @@ export function useClientSideV3Trade<TTradeType extends TradeType>(
       !currencyIn ||
       !currencyOut ||
       quotesResults.some(({ valid }) => !valid) ||
-      // skip when tokens are the same
-      (tradeType === TradeType.EXACT_INPUT
-        ? amountSpecified.currency.equals(currencyOut)
-        : amountSpecified.currency.equals(currencyIn))
+      currenciesAreTheSame
     ) {
       return {
         state: TradeState.INVALID,
@@ -124,7 +135,7 @@ export function useClientSideV3Trade<TTradeType extends TradeType>(
 
     return {
       state: TradeState.VALID,
-      trade: new InterfaceTrade({
+      trade: new ClassicTrade({
         v2Routes: [],
         v3Routes: [
           {
@@ -136,5 +147,5 @@ export function useClientSideV3Trade<TTradeType extends TradeType>(
         tradeType,
       }),
     }
-  }, [amountSpecified, currencyIn, currencyOut, quotesResults, routes, routesLoading, tradeType])
+  }, [amountSpecified, currenciesAreTheSame, currencyIn, currencyOut, quotesResults, routes, routesLoading, tradeType])
 }

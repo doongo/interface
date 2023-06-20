@@ -1,141 +1,228 @@
-import React from 'react'
+import { TraceEvent } from '@uniswap/analytics'
+import { BrowserEvent, InterfaceElementName, InterfaceEventName } from '@uniswap/analytics-events'
+import { useAccountDrawer } from 'components/AccountDrawer'
+import { ButtonEmphasis, ButtonSize, ThemeButton } from 'components/Button'
+import Loader from 'components/Icons/LoadingSpinner'
+import { walletConnectV1Connection } from 'connection'
+import { ActivationStatus, useActivationState } from 'connection/activate'
+import { Connection, ConnectionType } from 'connection/types'
+import { useOnClickOutside } from 'hooks/useOnClickOutside'
+import { MouseEvent, useEffect, useRef, useState } from 'react'
+import { MoreHorizontal } from 'react-feather'
 import styled from 'styled-components/macro'
+import { ThemedText } from 'theme'
+import { useIsDarkMode } from 'theme/components/ThemeToggle'
+import { flexColumnNoWrap, flexRowNoWrap } from 'theme/styles'
+import { Z_INDEX } from 'theme/zIndex'
 
-import { ExternalLink } from '../../theme'
-
-const InfoCard = styled.button<{ active?: boolean }>`
-  background-color: ${({ theme, active }) => (active ? theme.bg3 : theme.bg2)};
-  padding: 1rem;
-  outline: none;
-  border: 1px solid;
-  border-radius: 12px;
-  width: 100% !important;
-  &:focus {
-    box-shadow: 0 0 0 1px ${({ theme }) => theme.primary1};
-  }
-  border-color: ${({ theme, active }) => (active ? 'transparent' : theme.bg3)};
-`
-
-const OptionCard = styled(InfoCard as any)`
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 2rem;
-  padding: 1rem;
-`
+import NewBadge from './NewBadge'
 
 const OptionCardLeft = styled.div`
-  ${({ theme }) => theme.flexColumnNoWrap};
-  justify-content: center;
-  height: 100%;
-`
-
-const OptionCardClickable = styled(OptionCard as any)<{ clickable?: boolean }>`
-  margin-top: 0;
-  &:hover {
-    cursor: ${({ clickable }) => (clickable ? 'pointer' : '')};
-    border: ${({ clickable, theme }) => (clickable ? `1px solid ${theme.primary1}` : ``)};
-  }
-  opacity: ${({ disabled }) => (disabled ? '0.5' : '1')};
-`
-
-const GreenCircle = styled.div`
-  ${({ theme }) => theme.flexRowNoWrap}
-  justify-content: center;
+  ${flexColumnNoWrap};
+  flex-direction: row;
   align-items: center;
-
-  &:first-child {
-    height: 8px;
-    width: 8px;
-    margin-right: 8px;
-    background-color: ${({ theme }) => theme.green1};
-    border-radius: 50%;
-  }
 `
 
-const CircleWrapper = styled.div`
-  color: ${({ theme }) => theme.green1};
+const OptionCardClickable = styled.button<{ selected: boolean }>`
+  align-items: center;
+  background-color: unset;
+  border: none;
+  cursor: pointer;
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex: 1 1 auto;
+  flex-direction: row;
+  justify-content: space-between;
+  opacity: ${({ disabled, selected }) => (disabled && !selected ? '0.5' : '1')};
+  padding: 18px;
+  transition: ${({ theme }) => theme.transition.duration.fast};
 `
 
 const HeaderText = styled.div`
-  ${({ theme }) => theme.flexRowNoWrap};
-  color: ${(props) => (props.color === 'blue' ? ({ theme }) => theme.primary1 : ({ theme }) => theme.text1)};
-  font-size: 1rem;
-  font-weight: 500;
-`
-
-const SubHeader = styled.div`
-  color: ${({ theme }) => theme.text1};
-  margin-top: 10px;
-  font-size: 12px;
-`
-
-const IconWrapper = styled.div<{ size?: number | null }>`
-  ${({ theme }) => theme.flexColumnNoWrap};
+  ${flexRowNoWrap};
   align-items: center;
   justify-content: center;
+  color: ${(props) => (props.color === 'blue' ? ({ theme }) => theme.accentAction : ({ theme }) => theme.textPrimary)};
+  font-size: 16px;
+  font-weight: 600;
+  padding: 0 8px;
+`
+const IconWrapper = styled.div`
+  ${flexColumnNoWrap};
+  align-items: center;
+  justify-content: center;
+  img {
+    ${({ theme }) => !theme.darkMode && `border: 1px solid ${theme.backgroundOutline}`};
+    border-radius: 12px;
+  }
   & > img,
   span {
-    height: ${({ size }) => (size ? size + 'px' : '24px')};
-    width: ${({ size }) => (size ? size + 'px' : '24px')};
+    height: 40px;
+    width: 40px;
   }
-  ${({ theme }) => theme.mediaWidth.upToMedium`
+  ${({ theme }) => theme.deprecated_mediaWidth.deprecated_upToMedium`
     align-items: flex-end;
   `};
 `
+const WCv1PopoverContent = styled(ThemeButton)`
+  background: ${({ theme }) => theme.backgroundSurface};
+  border: 1px solid ${({ theme }) => theme.backgroundOutline};
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  max-width: 240px;
+  padding: 16px;
+  position: absolute;
+  right: 12px;
+  top: 52px;
+  z-index: ${Z_INDEX.popover};
+`
+const TOGGLE_SIZE = 24
+const WCv1PopoverToggle = styled.button`
+  align-items: center;
+  background-color: transparent;
+  border: none;
+  color: ${({ theme }) => theme.textTertiary};
+  cursor: pointer;
+  display: flex;
+  height: ${TOGGLE_SIZE}px;
+  justify-content: center;
+  margin: 0;
+  max-width: 48px;
+  padding: 0;
+  position: absolute;
+  right: 16px;
+  top: calc(50% - ${TOGGLE_SIZE / 2}px);
+  width: ${TOGGLE_SIZE}px;
 
-export default function Option({
-  link = null,
-  clickable = true,
-  size,
-  onClick = null,
-  color,
-  header,
-  subheader = null,
-  icon,
-  active = false,
-  id,
-}: {
-  link?: string | null
-  clickable?: boolean
-  size?: number | null
-  onClick?: null | (() => void)
-  color: string
-  header: React.ReactNode
-  subheader: React.ReactNode | null
-  icon: string
-  active?: boolean
-  id: string
-}) {
-  const content = (
-    <OptionCardClickable id={id} onClick={onClick} clickable={clickable && !active} active={active}>
-      <OptionCardLeft>
-        <HeaderText color={color}>
-          {active ? (
-            <CircleWrapper>
-              <GreenCircle>
-                <div />
-              </GreenCircle>
-            </CircleWrapper>
-          ) : (
-            ''
-          )}
-          {header}
-        </HeaderText>
-        {subheader && <SubHeader>{subheader}</SubHeader>}
-      </OptionCardLeft>
-      <IconWrapper size={size}>
-        <img src={icon} alt={'Icon'} />
+  &:hover {
+    opacity: 0.6;
+  }
+`
+const Wrapper = styled.div<{ disabled: boolean }>`
+  align-items: stretch;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  position: relative;
+  width: 100%;
+
+  background-color: ${({ theme }) => theme.backgroundModule};
+
+  &:hover {
+    cursor: ${({ disabled }) => !disabled && 'pointer'};
+    background-color: ${({ theme, disabled }) => !disabled && theme.hoverState};
+  }
+  &:focus {
+    background-color: ${({ theme, disabled }) => !disabled && theme.hoverState};
+  }
+`
+
+const WCv1Icon = styled.img`
+  height: 20px !important;
+  width: 20px !important;
+`
+const WCv1BodyText = styled(ThemedText.BodyPrimary)`
+  margin-bottom: 4px !important;
+  text-align: left;
+`
+const WCv1Caption = styled(ThemedText.Caption)`
+  text-align: left;
+`
+
+interface PopupButtonContentProps {
+  connection: Connection
+  isDarkMode: boolean
+  show: boolean
+  onClick: (e: MouseEvent<HTMLButtonElement>) => void
+  onClose: () => void
+}
+function PopupButtonContent({ connection, isDarkMode, show, onClick, onClose }: PopupButtonContentProps) {
+  const popoverElement = useRef<HTMLButtonElement>(null)
+  useOnClickOutside(popoverElement, onClose)
+  if (!show) return null
+  return (
+    <WCv1PopoverContent onClick={onClick} ref={popoverElement} size={ButtonSize.small} emphasis={ButtonEmphasis.medium}>
+      <IconWrapper>
+        <WCv1Icon src={connection.getIcon?.(isDarkMode)} alt={connection.getName()} />
       </IconWrapper>
-    </OptionCardClickable>
+      <div>
+        <WCv1BodyText>Connect with v1</WCv1BodyText>
+        <WCv1Caption color="textSecondary">Support for v1 will be discontinued June 28.</WCv1Caption>
+      </div>
+    </WCv1PopoverContent>
   )
-  if (link) {
-    return <ExternalLink href={link}>{content}</ExternalLink>
+}
+
+interface OptionProps {
+  connection: Connection
+}
+export default function Option({ connection }: OptionProps) {
+  const { activationState, tryActivation } = useActivationState()
+  const [WC1PromptOpen, setWC1PromptOpen] = useState(false)
+  const [accountDrawerOpen, toggleAccountDrawerOpen] = useAccountDrawer()
+  const activate = () => tryActivation(connection, toggleAccountDrawerOpen)
+
+  useEffect(() => {
+    if (!accountDrawerOpen) setWC1PromptOpen(false)
+  }, [accountDrawerOpen])
+
+  const isSomeOptionPending = activationState.status === ActivationStatus.PENDING
+  const isCurrentOptionPending = isSomeOptionPending && activationState.connection.type === connection.type
+  const isDarkMode = useIsDarkMode()
+
+  const handleClickConnectViaWCv1 = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    tryActivation(walletConnectV1Connection, () => {
+      setWC1PromptOpen(false)
+      toggleAccountDrawerOpen()
+    })
+  }
+  const handleClickOpenWCv1Tooltip = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    setWC1PromptOpen(true)
   }
 
-  return content
+  const showExtraMenuToggle = connection.type === ConnectionType.WALLET_CONNECT_V2 && !isCurrentOptionPending
+
+  return (
+    <Wrapper disabled={isSomeOptionPending}>
+      <TraceEvent
+        events={[BrowserEvent.onClick]}
+        name={InterfaceEventName.WALLET_SELECTED}
+        properties={{ wallet_type: connection.getName() }}
+        element={InterfaceElementName.WALLET_TYPE_OPTION}
+      >
+        <OptionCardClickable
+          disabled={isSomeOptionPending}
+          onClick={activate}
+          selected={isCurrentOptionPending}
+          data-testid={`wallet-option-${connection.type}`}
+        >
+          <OptionCardLeft>
+            <IconWrapper>
+              <img src={connection.getIcon?.(isDarkMode)} alt={connection.getName()} />
+            </IconWrapper>
+            <HeaderText>{connection.getName()}</HeaderText>
+            {connection.isNew && <NewBadge />}
+          </OptionCardLeft>
+          {isCurrentOptionPending && <Loader />}
+        </OptionCardClickable>
+      </TraceEvent>
+
+      {showExtraMenuToggle && (
+        <>
+          <WCv1PopoverToggle onClick={handleClickOpenWCv1Tooltip} onMouseDown={handleClickOpenWCv1Tooltip}>
+            <MoreHorizontal />
+          </WCv1PopoverToggle>
+          <PopupButtonContent
+            connection={connection}
+            isDarkMode={isDarkMode}
+            show={WC1PromptOpen}
+            onClick={handleClickConnectViaWCv1}
+            onClose={() => setWC1PromptOpen(false)}
+          />
+        </>
+      )}
+    </Wrapper>
+  )
 }

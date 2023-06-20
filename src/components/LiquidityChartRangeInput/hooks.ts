@@ -10,11 +10,11 @@ export function useDensityChartData({
   currencyB,
   feeAmount,
 }: {
-  currencyA: Currency | undefined
-  currencyB: Currency | undefined
-  feeAmount: FeeAmount | undefined
+  currencyA?: Currency
+  currencyB?: Currency
+  feeAmount?: FeeAmount
 }) {
-  const { isLoading, isUninitialized, isError, error, data } = usePoolActiveLiquidity(currencyA, currencyB, feeAmount)
+  const { isLoading, error, data } = usePoolActiveLiquidity(currencyA, currencyB, feeAmount)
 
   const formatData = useCallback(() => {
     if (!data?.length) {
@@ -42,10 +42,8 @@ export function useDensityChartData({
   return useMemo(() => {
     return {
       isLoading,
-      isUninitialized,
-      isError,
       error,
-      formattedData: !isLoading && !isUninitialized ? formatData() : undefined,
+      formattedData: !isLoading ? formatData() : undefined,
     }
-  }, [isLoading, isUninitialized, isError, error, formatData])
+  }, [isLoading, error, formatData])
 }

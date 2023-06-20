@@ -1,15 +1,15 @@
 import { Trans } from '@lingui/macro'
+import { formatNumber, NumberType } from '@uniswap/conedison/format'
 import { Currency, Price } from '@uniswap/sdk-core'
-import useUSDCPrice from 'hooks/useUSDCPrice'
-import { useCallback, useContext } from 'react'
-import { Text } from 'rebass'
-import styled, { ThemeContext } from 'styled-components/macro'
+import { useUSDPrice } from 'hooks/useUSDPrice'
+import tryParseCurrencyAmount from 'lib/utils/tryParseCurrencyAmount'
+import { useCallback, useState } from 'react'
+import styled from 'styled-components/macro'
 import { ThemedText } from 'theme'
+import { formatTransactionAmount, priceToPreciseFloat } from 'utils/formatNumbers'
 
 interface TradePriceProps {
   price: Price<Currency, Currency>
-  showInverted: boolean
-  setShowInverted: (showInverted: boolean) => void
 }
 
 const StyledPriceContainer = styled.button`
@@ -25,18 +25,20 @@ const StyledPriceContainer = styled.button`
   flex-direction: row;
   text-align: left;
   flex-wrap: wrap;
-  padding: 8px 0;
   user-select: text;
 `
 
-export default function TradePrice({ price, showInverted, setShowInverted }: TradePriceProps) {
-  const theme = useContext(ThemeContext)
+export default function TradePrice({ price }: TradePriceProps) {
+  const [showInverted, setShowInverted] = useState<boolean>(false)
 
-  const usdcPrice = useUSDCPrice(showInverted ? price.baseCurrency : price.quoteCurrency)
+  const { baseCurrency, quoteCurrency } = price
+  const { data: usdPrice } = useUSDPrice(tryParseCurrencyAmount('1', showInverted ? baseCurrency : quoteCurrency))
 
   let formattedPrice: string
   try {
-    formattedPrice = showInverted ? price.toSignificant(4) : price.invert()?.toSignificant(4)
+    formattedPrice = showInverted
+      ? formatTransactionAmount(priceToPreciseFloat(price))
+      : formatTransactionAmount(priceToPreciseFloat(price.invert()))
   } catch (error) {
     formattedPrice = '0'
   }
@@ -55,13 +57,11 @@ export default function TradePrice({ price, showInverted, setShowInverted }: Tra
       }}
       title={text}
     >
-      <Text fontWeight={500} color={theme.text1}>
-        {text}
-      </Text>{' '}
-      {usdcPrice && (
-        <ThemedText.DarkGray>
-          <Trans>(${usdcPrice.toSignificant(6, { groupSeparator: ',' })})</Trans>
-        </ThemedText.DarkGray>
+      <ThemedText.BodySmall>{text}</ThemedText.BodySmall>{' '}
+      {usdPrice && (
+        <ThemedText.BodySmall color="textSecondary">
+          <Trans>({formatNumber(usdPrice, NumberType.FiatTokenPrice)})</Trans>
+        </ThemedText.BodySmall>
       )}
     </StyledPriceContainer>
   )

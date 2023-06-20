@@ -1,19 +1,22 @@
 import { Trans } from '@lingui/macro'
+import { Trace, TraceEvent } from '@uniswap/analytics'
+import { BrowserEvent, InterfaceElementName, InterfaceEventName, InterfacePageName } from '@uniswap/analytics-events'
+import { useWeb3React } from '@web3-react/core'
+import { useToggleAccountDrawer } from 'components/AccountDrawer'
 import { ButtonGray, ButtonPrimary, ButtonText } from 'components/Button'
 import { AutoColumn } from 'components/Column'
-import { FlyoutAlignment, NewMenu } from 'components/Menu'
-import { SwapPoolTabs } from 'components/NavigationTabs'
+import { FlyoutAlignment, Menu } from 'components/Menu'
 import PositionList from 'components/PositionList'
 import { RowBetween, RowFixed } from 'components/Row'
 import { SwitchLocaleLink } from 'components/SwitchLocaleLink'
-import useActiveWeb3React from 'hooks/useActiveWeb3React'
+import { isSupportedChain } from 'constants/chains'
+import { useFilterPossiblyMaliciousPositions } from 'hooks/useFilterPossiblyMaliciousPositions'
 import { useV3Positions } from 'hooks/useV3Positions'
-import { useContext } from 'react'
-import { BookOpen, ChevronDown, ChevronsRight, Inbox, Layers, PlusCircle } from 'react-feather'
+import { useMemo } from 'react'
+import { AlertTriangle, BookOpen, ChevronDown, ChevronsRight, Inbox, Layers } from 'react-feather'
 import { Link } from 'react-router-dom'
-import { useWalletModalToggle } from 'state/application/hooks'
 import { useUserHideClosedPositions } from 'state/user/hooks'
-import styled, { ThemeContext } from 'styled-components/macro'
+import styled, { css, useTheme } from 'styled-components/macro'
 import { HideSmall, ThemedText } from 'theme'
 import { PositionDetails } from 'types/position'
 
@@ -22,20 +25,29 @@ import CTACards from './CTACards'
 import { LoadingRows } from './styleds'
 
 const PageWrapper = styled(AutoColumn)`
+  padding: 68px 8px 0px;
   max-width: 870px;
   width: 100%;
 
-  ${({ theme }) => theme.mediaWidth.upToMedium`
+  ${({ theme }) => theme.deprecated_mediaWidth.deprecated_upToMedium`
     max-width: 800px;
   `};
 
-  ${({ theme }) => theme.mediaWidth.upToSmall`
+  ${({ theme }) => theme.deprecated_mediaWidth.deprecated_upToSmall`
     max-width: 500px;
   `};
+
+  @media only screen and (max-width: ${({ theme }) => `${theme.breakpoint.md}px`}) {
+    padding-top: 48px;
+  }
+
+  @media only screen and (max-width: ${({ theme }) => `${theme.breakpoint.sm}px`}) {
+    padding-top: 20px;
+  }
 `
 const TitleRow = styled(RowBetween)`
-  color: ${({ theme }) => theme.text2};
-  ${({ theme }) => theme.mediaWidth.upToSmall`
+  color: ${({ theme }) => theme.textSecondary};
+  ${({ theme }) => theme.deprecated_mediaWidth.deprecated_upToSmall`
     flex-wrap: wrap;
     gap: 12px;
     width: 100%;
@@ -46,16 +58,16 @@ const ButtonRow = styled(RowFixed)`
     margin-left: 8px;
   }
 
-  ${({ theme }) => theme.mediaWidth.upToSmall`
+  ${({ theme }) => theme.deprecated_mediaWidth.deprecated_upToSmall`
     width: 100%;
     flex-direction: row;
     justify-content: space-between;
     flex-direction: row-reverse;
   `};
 `
-const Menu = styled(NewMenu)`
+const PoolMenu = styled(Menu)`
   margin-left: 0;
-  ${({ theme }) => theme.mediaWidth.upToSmall`
+  ${({ theme }) => theme.deprecated_mediaWidth.deprecated_upToSmall`
     flex: 1 1 auto;
     width: 49%;
     right: 0px;
@@ -65,7 +77,7 @@ const Menu = styled(NewMenu)`
     width: 100%;
   }
 `
-const MenuItem = styled.div`
+const PoolMenuItem = styled.div`
   align-items: center;
   display: flex;
   justify-content: space-between;
@@ -77,10 +89,16 @@ const MoreOptionsButton = styled(ButtonGray)`
   flex: 1 1 auto;
   padding: 6px 8px;
   width: 100%;
-  background-color: ${({ theme }) => theme.bg0};
+  background-color: ${({ theme }) => theme.backgroundSurface};
   margin-right: 8px;
 `
-const NoLiquidity = styled.div`
+
+const MoreOptionsText = styled(ThemedText.DeprecatedBody)`
+  align-items: center;
+  display: flex;
+`
+
+const ErrorContainer = styled.div`
   align-items: center;
   display: flex;
   flex-direction: column;
@@ -89,22 +107,41 @@ const NoLiquidity = styled.div`
   max-width: 300px;
   min-height: 25vh;
 `
+
+const IconStyle = css`
+  width: 48px;
+  height: 48px;
+  margin-bottom: 0.5rem;
+`
+
+const NetworkIcon = styled(AlertTriangle)`
+  ${IconStyle}
+`
+
+const InboxIcon = styled(Inbox)`
+  ${IconStyle}
+`
+
 const ResponsiveButtonPrimary = styled(ButtonPrimary)`
   border-radius: 12px;
+  font-size: 16px;
   padding: 6px 8px;
   width: fit-content;
-  ${({ theme }) => theme.mediaWidth.upToSmall`
+  ${({ theme }) => theme.deprecated_mediaWidth.deprecated_upToSmall`
     flex: 1 1 auto;
     width: 100%;
   `};
 `
 
 const MainContentWrapper = styled.main`
-  background-color: ${({ theme }) => theme.bg0};
-  padding: 8px;
-  border-radius: 20px;
+  background-color: ${({ theme }) => theme.backgroundSurface};
+  border: 1px solid ${({ theme }) => theme.backgroundOutline};
+  padding: 0;
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
+  box-shadow: 0px 0px 1px rgba(0, 0, 0, 0.01), 0px 4px 8px rgba(0, 0, 0, 0.04), 0px 16px 24px rgba(0, 0, 0, 0.04),
+    0px 24px 32px rgba(0, 0, 0, 0.01);
 `
 
 function PositionsLoadingPlaceholder() {
@@ -126,11 +163,43 @@ function PositionsLoadingPlaceholder() {
   )
 }
 
-export default function Pool() {
-  const { account, chainId } = useActiveWeb3React()
-  const toggleWalletModal = useWalletModalToggle()
+function WrongNetworkCard() {
+  const theme = useTheme()
 
-  const theme = useContext(ThemeContext)
+  return (
+    <>
+      <PageWrapper>
+        <AutoColumn gap="lg" justify="center">
+          <AutoColumn gap="lg" style={{ width: '100%' }}>
+            <TitleRow padding="0">
+              <ThemedText.LargeHeader>
+                <Trans>Pools</Trans>
+              </ThemedText.LargeHeader>
+            </TitleRow>
+
+            <MainContentWrapper>
+              <ErrorContainer>
+                <ThemedText.DeprecatedBody color={theme.textTertiary} textAlign="center">
+                  <NetworkIcon strokeWidth={1.2} />
+                  <div data-testid="pools-unsupported-err">
+                    <Trans>Your connected network is unsupported.</Trans>
+                  </div>
+                </ThemedText.DeprecatedBody>
+              </ErrorContainer>
+            </MainContentWrapper>
+          </AutoColumn>
+        </AutoColumn>
+      </PageWrapper>
+      <SwitchLocaleLink />
+    </>
+  )
+}
+
+export default function Pool() {
+  const { account, chainId } = useWeb3React()
+  const toggleWalletDrawer = useToggleAccountDrawer()
+
+  const theme = useTheme()
   const [userHideClosedPositions, setUserHideClosedPositions] = useUserHideClosedPositions()
 
   const { positions, loading: positionsLoading } = useV3Positions(account)
@@ -143,79 +212,78 @@ export default function Pool() {
     [[], []]
   ) ?? [[], []]
 
-  const filteredPositions = [...openPositions, ...(userHideClosedPositions ? [] : closedPositions)]
+  const userSelectedPositionSet = useMemo(
+    () => [...openPositions, ...(userHideClosedPositions ? [] : closedPositions)],
+    [closedPositions, openPositions, userHideClosedPositions]
+  )
+
+  const filteredPositions = useFilterPossiblyMaliciousPositions(userSelectedPositionSet)
+
+  if (!isSupportedChain(chainId)) {
+    return <WrongNetworkCard />
+  }
+
   const showConnectAWallet = Boolean(!account)
-  const showV2Features = Boolean(chainId && V2_FACTORY_ADDRESSES[chainId])
+  const showV2Features = Boolean(V2_FACTORY_ADDRESSES[chainId])
 
   const menuItems = [
     {
       content: (
-        <MenuItem>
-          <Trans>Create a pool</Trans>
-          <PlusCircle size={16} />
-        </MenuItem>
-      ),
-      link: '/add/ETH',
-      external: false,
-    },
-    {
-      content: (
-        <MenuItem>
+        <PoolMenuItem>
           <Trans>Migrate</Trans>
           <ChevronsRight size={16} />
-        </MenuItem>
+        </PoolMenuItem>
       ),
       link: '/migrate/v2',
       external: false,
     },
     {
       content: (
-        <MenuItem>
+        <PoolMenuItem>
           <Trans>V2 liquidity</Trans>
           <Layers size={16} />
-        </MenuItem>
+        </PoolMenuItem>
       ),
-      link: '/pool/v2',
+      link: '/pools/v2',
       external: false,
     },
     {
       content: (
-        <MenuItem>
+        <PoolMenuItem>
           <Trans>Learn</Trans>
           <BookOpen size={16} />
-        </MenuItem>
+        </PoolMenuItem>
       ),
-      link: 'https://docs.uniswap.org/',
+      link: 'https://support.uniswap.org/hc/en-us/categories/8122334631437-Providing-Liquidity-',
       external: true,
     },
   ]
 
   return (
-    <>
+    <Trace page={InterfacePageName.POOL_PAGE} shouldLogImpression>
       <PageWrapper>
-        <SwapPoolTabs active={'pool'} />
         <AutoColumn gap="lg" justify="center">
           <AutoColumn gap="lg" style={{ width: '100%' }}>
-            <TitleRow style={{ marginTop: '1rem' }} padding={'0'}>
-              <ThemedText.Body fontSize={'20px'}>
-                <Trans>Pools Overview</Trans>
-              </ThemedText.Body>
+            <TitleRow padding="0">
+              <ThemedText.LargeHeader>
+                <Trans>Pools</Trans>
+              </ThemedText.LargeHeader>
               <ButtonRow>
                 {showV2Features && (
-                  <Menu
+                  <PoolMenu
                     menuItems={menuItems}
                     flyoutAlignment={FlyoutAlignment.LEFT}
                     ToggleUI={(props: any) => (
                       <MoreOptionsButton {...props}>
-                        <ThemedText.Body style={{ alignItems: 'center', display: 'flex' }}>
+                        <MoreOptionsText>
                           <Trans>More</Trans>
                           <ChevronDown size={15} />
-                        </ThemedText.Body>
+                        </MoreOptionsText>
                       </MoreOptionsButton>
                     )}
                   />
                 )}
-                <ResponsiveButtonPrimary id="join-pool-button" as={Link} to="/add/ETH">
+                <ResponsiveButtonPrimary data-cy="join-pool-button" id="join-pool-button" as={Link} to="/add/ETH">
                   + <Trans>New Position</Trans>
                 </ResponsiveButtonPrimary>
               </ButtonRow>
@@ -231,13 +299,13 @@ export default function Pool() {
                   userHideClosedPositions={userHideClosedPositions}
                 />
               ) : (
-                <NoLiquidity>
-                  <ThemedText.Body color={theme.text3} textAlign="center">
-                    <Inbox size={48} strokeWidth={1} style={{ marginBottom: '.5rem' }} />
+                <ErrorContainer>
+                  <ThemedText.DeprecatedBody color={theme.textTertiary} textAlign="center">
+                    <InboxIcon strokeWidth={1} style={{ marginTop: '2em' }} />
                     <div>
                       <Trans>Your active V3 liquidity positions will appear here.</Trans>
                     </div>
-                  </ThemedText.Body>
+                  </ThemedText.DeprecatedBody>
                   {!showConnectAWallet && closedPositions.length > 0 && (
                     <ButtonText
                       style={{ marginTop: '.5rem' }}
@@ -247,11 +315,21 @@ export default function Pool() {
                     </ButtonText>
                   )}
                   {showConnectAWallet && (
-                    <ButtonPrimary style={{ marginTop: '2em', padding: '8px 16px' }} onClick={toggleWalletModal}>
-                      <Trans>Connect a wallet</Trans>
-                    </ButtonPrimary>
+                    <TraceEvent
+                      events={[BrowserEvent.onClick]}
+                      name={InterfaceEventName.CONNECT_WALLET_BUTTON_CLICKED}
+                      properties={{ received_swap_quote: false }}
+                      element={InterfaceElementName.CONNECT_WALLET_BUTTON}
+                    >
+                      <ButtonPrimary
+                        style={{ marginTop: '2em', marginBottom: '2em', padding: '8px 16px' }}
+                        onClick={toggleWalletDrawer}
+                      >
+                        <Trans>Connect a wallet</Trans>
+                      </ButtonPrimary>
+                    </TraceEvent>
                   )}
-                </NoLiquidity>
+                </ErrorContainer>
               )}
             </MainContentWrapper>
             <HideSmall>
@@ -261,6 +339,6 @@ export default function Pool() {
         </AutoColumn>
       </PageWrapper>
       <SwitchLocaleLink />
-    </>
+    </Trace>
   )
 }
